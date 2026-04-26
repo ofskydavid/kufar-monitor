@@ -8,8 +8,9 @@ from flask import Flask
 # ================= НАСТРОЙКИ =================
 TELEGRAM_TOKEN = "8620473509:AAFa8BIAUuH5IU8GDrFGz4pn5EGbzvcFZ90"
 TELEGRAM_USER_ID = "478140816"
-KUFAR_URL = "https://www.kufar.by/l/mobilnye-telefony?oph=1&pos=v.or%3A1%2C5&prc=r%3A0%2C300000&sort=lst.d"
-CHECK_INTERVAL = 3  # минуты
+KUFAR_URL = "https://www.kufar.by/l/r~vitebsk/mobilnye-telefony/mt~android?oph=1&prc=r%3A0%2C50000&sort=lst.d"
+CHECK_INTERVAL = 3          # минуты между проверками
+SELF_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://kufar-monitor.onrender.com")
 # =============================================
 
 SEEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seen.json")
@@ -87,14 +88,19 @@ def main_loop():
                     seen.append(ad["id"])
                 save_seen(seen)
 
-# Запускаем мониторинг прямо при старте и потом по расписанию через бесконечный цикл
-import threading
 def schedule_check():
     while True:
+        # Пинг самого себя, чтобы Render не уснул
+        try:
+            requests.get(SELF_URL, timeout=5)
+        except:
+            pass
+        # Проверка объявлений
         main_loop()
         time.sleep(CHECK_INTERVAL * 60)
 
 if __name__ == "__main__":
+    import threading
     monitor_thread = threading.Thread(target=schedule_check)
     monitor_thread.daemon = True
     monitor_thread.start()
