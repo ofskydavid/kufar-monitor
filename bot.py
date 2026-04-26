@@ -8,7 +8,7 @@ from flask import Flask
 # ================= НАСТРОЙКИ =================
 TELEGRAM_TOKEN = "8620473509:AAFa8BIAUuH5IU8GDrFGz4pn5EGbzvcFZ90"
 TELEGRAM_USER_ID = "478140816"
-KUFAR_URL = "https://www.kufar.by/l/r~vitebsk/mobilnye-telefony/mt~android?oph=1&prc=r%3A0%2C50000&sort=lst.d"
+KUFAR_URL = "https://www.kufar.by/l/mobilnye-telefony/mt~android?oph=1&prc=r%3A0%2C50000&sort=lst.d"
 CHECK_INTERVAL = 3  # минуты
 # =============================================
 
