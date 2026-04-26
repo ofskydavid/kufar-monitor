@@ -9,7 +9,7 @@ from flask import Flask
 TELEGRAM_TOKEN = "8620473509:AAFa8BIAUuH5IU8GDrFGz4pn5EGbzvcFZ90"
 TELEGRAM_USER_ID = "478140816"
 KUFAR_URL = "https://www.kufar.by/l/mobilnye-telefony?oph=1&pos=v.or%3A1%2C5&prc=r%3A0%2C300000&sort=lst.d"
-CHECK_INTERVAL = 3          # минуты между проверками
+CHECK_INTERVAL = 3          # минуты
 SELF_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://kufar-monitor.onrender.com")
 # =============================================
 
@@ -20,6 +20,17 @@ app = Flask(__name__)
 @app.route("/")
 def home():
     return "Kufar Monitor Bot is running"
+
+@app.route("/reset")
+def reset():
+    """Сброс памяти – удаляет seen.json"""
+    try:
+        if os.path.exists(SEEN_FILE):
+            os.remove(SEEN_FILE)
+            return "Память очищена. При следующей проверке все текущие объявления придут как новые."
+        return "Файл seen.json не найден – и так пусто."
+    except Exception as e:
+        return f"Ошибка при очистке: {e}"
 
 def load_seen():
     if os.path.exists(SEEN_FILE):
@@ -43,11 +54,13 @@ def fetch_ads():
         "prc": "r:0,50000"
     }
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    print(f"[{datetime.now()}] 🔄 Запрашиваю объявления...")
     try:
         resp = requests.get(base, params=params, headers=headers, timeout=20)
         resp.raise_for_status()
         data = resp.json()
         ads = data.get("ads", [])
+        print(f"[{datetime.now()}] Получено {len(ads)} объявлений от API")
         result = []
         for ad in ads:
             ad_id = ad.get("ad_id")
@@ -58,7 +71,7 @@ def fetch_ads():
                 result.append({"id": str(ad_id), "title": title, "price": price, "link": link})
         return result
     except Exception as e:
-        print(f"[!] Ошибка получения: {e}")
+        print(f"[{datetime.now()}] ❌ ОШИБКА получения: {e}")
         return None
 
 def send_telegram(ad):
@@ -67,35 +80,44 @@ def send_telegram(ad):
     message = f"🆕 {title}\n💵 {price_str}\n🔗 {ad['link']}"
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_USER_ID, "text": message, "disable_web_page_preview": False}
+    print(f"[{datetime.now()}] 📤 Отправляю: {title} | {price_str}")
     try:
-        requests.post(url, json=payload, timeout=10)
-    except:
-        pass
+        r = requests.post(url, json=payload, timeout=10)
+        if r.status_code != 200:
+            print(f"[{datetime.now()}] ❌ ОШИБКА Telegram: {r.status_code} {r.text}")
+        else:
+            print(f"[{datetime.now()}] ✅ Успешно отправлено")
+    except Exception as e:
+        print(f"[{datetime.now()}] ❌ Исключение при отправке: {e}")
 
 def main_loop():
     seen = load_seen()
     ads = fetch_ads()
-    if ads is not None:
-        if not seen:
-            seen = [ad["id"] for ad in ads]
+    if ads is None:
+        return
+    if not seen:
+        # Первый запуск – молча сохраняем всё как просмотренное, НЕ отправляем
+        seen = [ad["id"] for ad in ads]
+        save_seen(seen)
+        print(f"[{datetime.now()}] 🔇 Первичная загрузка: {len(seen)} ID сохранено (уведомления не отправлялись).")
+        print("   Чтобы получить текущие объявления сейчас, открой /reset в браузере.")
+    else:
+        new_ads = [ad for ad in ads if ad["id"] not in seen]
+        if new_ads:
+            print(f"[{datetime.now()}] 🔔 НОВЫХ: {len(new_ads)}")
+            for ad in new_ads:
+                send_telegram(ad)
+                seen.append(ad["id"])
             save_seen(seen)
-            print(f"Первичная загрузка: {len(seen)} объявлений")
         else:
-            new_ads = [ad for ad in ads if ad["id"] not in seen]
-            if new_ads:
-                for ad in new_ads:
-                    send_telegram(ad)
-                    seen.append(ad["id"])
-                save_seen(seen)
+            print(f"[{datetime.now()}] Новых нет (отслеживается {len(seen)} ID)")
 
 def schedule_check():
     while True:
-        # Пинг самого себя, чтобы Render не уснул
         try:
             requests.get(SELF_URL, timeout=5)
         except:
             pass
-        # Проверка объявлений
         main_loop()
         time.sleep(CHECK_INTERVAL * 60)
 
